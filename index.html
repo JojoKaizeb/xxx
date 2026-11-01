@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Pelacak — Cari Perangkat Hilang</title>
+<meta name="description" content="Lacak perangkat yang hilang secara real-time dari perangkat lain, lewat browser, tanpa install apa-apa.">
+
+<!-- PeerJS via CDN — no backend/DB required -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+<style>
+  :root {
+    --bg-0: #07080b;
+    --bg-1: #0e1016;
+    --bg-2: #14171f;
+    --surface: #181c26;
+    --surface-raised: #1f2430;
+    --border: #272c3a;
+    --border-soft: #1d2230;
+    --text-0: #f4f5f7;
+    --text-1: #b8bdc9;
+    --text-2: #767d8e;
+    --accent: #5b8cff;
+    --accent-soft: rgba(91, 140, 255, 0.14);
+    --cold: #4a7dff;
+    --cool: #38b6c9;
+    --mild: #3ecf8e;
+    --warm: #e8b339;
+    --hot: #f2782f;
+    --scorching: #ef4444;
+    --danger: #ef4444;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-0);
+    color: var(--text-0);
+    font-family: var(--font);
+    height: 100%;
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(900px 500px at 50% -10%, rgba(91,140,255,0.10), transparent 60%),
+      var(--bg-0);
+  }
+
+  .app {
+    max-width: 520px;
+    width: 100%;
+    margin: 0 auto;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 10px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+    color: var(--text-0);
+  }
+  .brand-mark {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(145deg, var(--accent), #8b5bff);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .status-chip {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 6px 10px 6px 8px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-2);
+    flex-shrink: 0;
+  }
+  .status-chip.ok .status-dot { background: var(--mild); box-shadow: 0 0 8px var(--mild); }
+  .status-chip.ok { color: var(--mild); }
+  .status-chip.warn .status-dot { background: var(--warm); }
+  .status-chip.warn { color: var(--warm); }
+  .status-chip.err .status-dot { background: var(--danger); }
+  .status-chip.err { color: var(--danger); }
+  .status-chip.pulse .status-dot { animation: dotpulse 1.4s ease-in-out infinite; }
+  @keyframes dotpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 4px 20px 28px;
+  }
+
+  /* ---------- Screens ---------- */
+  .screen { display: none; flex: 1; flex-direction: column; animation: fadein 0.28s ease; }
+  .screen.active { display: flex; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- Hero / role select ---------- */
+  .hero { text-align: center; padding: 18px 4px 8px; }
+  .hero h1 {
+    font-size: 25px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+    color: var(--text-0);
+  }
+  .hero p {
+    font-size: 14.5px;
+    color: var(--text-1);
+    line-height: 1.55;
+    margin: 0 auto;
+    max-width: 380px;
+  }
+
+  .role-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 22px;
+  }
+  .role-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  }
+  .role-card:active { transform: scale(0.98); }
+  .role-card:hover { border-color: #39405a; background: var(--surface-raised); }
+  .role-icon {
+    width: 46px; height: 46px;
+    border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .role-card.lost .role-icon { background: rgba(242, 120, 47, 0.14); }
+  .role-card.seek .role-icon { background: rgba(91, 140, 255, 0.14); }
+  .role-text h3 {
+    margin: 0 0 3px;
+    font-size: 15.5px;
+    font-weight: 650;
+    color: var(--text-0);
+  }
+  .role-text p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.45;
+  }
+  .role-chevron { margin-left: auto; color: var(--text-2); font-size: 18px; flex-shrink: 0; }
+
+  .howitworks {
+    margin-top: 24px;
+    padding: 15px 16px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+  }
+  .howitworks summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .howitworks summary::-webkit-details-marker { display: none; }
+  .howitworks[open] summary { margin-bottom: 10px; color: var(--text-0); }
+  .howitworks ol {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.7;
+  }
+  .howitworks .chev { transition: transform 0.2s ease; color: var(--text-2); }
+  .howitworks[open] .chev { transform: rotate(180deg); }
+
+  /* ---------- Pairing (code display / entry) ---------- */
+  .back-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 4px;
+  }
+  .back-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    cursor: pointer;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .back-btn:active { transform: scale(0.94); }
+  .screen-title { font-size: 14px; font-weight: 650; color: var(--text-1); }
+
+  .pair-card {
+    margin-top: 18px;
+    padding: 26px 22px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .pair-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 14px;
+  }
+  .code-display {
+    font-family: var(--mono);
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    padding: 16px 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px dashed #30374a;
+    word-break: break-all;
+  }
+  .code-display.placeholder { color: var(--text-2); font-size: 15px; letter-spacing: normal; font-weight: 500; }
+
+  .code-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .mini-btn {
+    flex: 1;
+    padding: 11px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mini-btn:active { transform: scale(0.97); }
+  .mini-btn.copied { color: var(--mild); border-color: var(--mild); }
+
+  .pair-hint {
+    margin-top: 16px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    line-height: 1.6;
+  }
+
+  .input-group { margin-top: 20px; }
+  .input-group label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 9px;
+  }
+  .code-input {
+    width: 100%;
+    padding: 16px 16px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1.5px solid var(--border);
+    color: var(--text-0);
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-align: center;
+    text-transform: uppercase;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .code-input:focus { border-color: var(--accent); }
+  .code-input::placeholder { color: var(--text-2); letter-spacing: normal; font-weight: 500; font-size: 15px; }
+
+  .primary-btn {
+    width: 100%;
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 15.5px;
+    font-weight: 650;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: filter 0.15s ease, transform 0.15s ease;
+  }
+  .primary-btn:active { transform: scale(0.98); }
+  .primary-btn:disabled { opacity: 0.45; pointer-events: none; }
+  .primary-btn.danger { background: var(--danger); }
+  .primary-btn.ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+  }
+
+  .inline-error {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--danger);
+    display: none;
+    align-items: center;
+    gap: 6px;
+  }
+  .inline-error.show { display: flex; }
+
+  /* ---------- Lost-device waiting screen ---------- */
+  .wait-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 10px 10px 30px;
+  }
+  .wait-orb {
+    width: 108px; height: 108px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #2a3250, var(--bg-1));
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px;
+    position: relative;
+    margin-bottom: 22px;
+  }
+  .wait-orb::before, .wait-orb::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    opacity: 0;
+    animation: ripple 2.6s ease-out infinite;
+  }
+  .wait-orb::after { animation-delay: 1.3s; }
+  @keyframes ripple {
+    0% { transform: scale(1); opacity: 0.55; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+  .wait-orb.linked { background: radial-gradient(circle at 35% 30%, rgba(62,207,142,0.22), var(--bg-1)); border-color: rgba(62,207,142,0.4); }
+  .wait-orb.linked::before, .wait-orb.linked::after { border-color: var(--mild); }
+
+  .wait-title { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+  .wait-sub { font-size: 13.5px; color: var(--text-2); max-width: 300px; line-height: 1.55; margin: 0 0 20px; }
+
+  .wait-panel {
+    width: 100%;
+    margin-top: 10px;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  .wait-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 13px; }
+  .wait-row + .wait-row { border-top: 1px solid var(--border-soft); }
+  .wait-row .k { color: var(--text-2); }
+  .wait-row .v { color: var(--text-0); font-weight: 600; font-family: var(--mono); font-size: 12.5px; }
+  .wait-row .v.ok { color: var(--mild); }
+
+  .battery-row { display: flex; align-items: center; gap: 8px; }
+  .battery-pill {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 650;
+    padding: 4px 9px 4px 7px;
+    border-radius: 999px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    color: var(--text-1);
+  }
+
+  /* ---------- Seeker: radar screen ---------- */
+  .radar-screen { flex: 1; display: flex; flex-direction: column; }
+
+  .term-banner {
+    text-align: center;
+    padding: 2px 10px 6px;
+  }
+  .term-word {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    transition: color 0.4s ease;
+    margin: 0;
+  }
+  .term-sub {
+    font-size: 13px;
+    color: var(--text-2);
+    margin: 4px 0 0;
+    min-height: 18px;
+  }
+
+  .radar-stage {
+    position: relative;
+    width: 100%;
+    max-width: 320px;
+    aspect-ratio: 1 / 1;
+    margin: 14px auto 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .radar-svg { width: 100%; height: 100%; display: block; }
+  .radar-ring { fill: none; stroke: var(--border-soft); stroke-width: 1; }
+  .radar-pulse-ring {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    opacity: 0;
+    transform-origin: 160px 160px;
+  }
+  .radar-pulse-ring.pulsing { animation: radarpulse 1s ease-out; }
+  @keyframes radarpulse {
+    0% { opacity: 0.8; transform: scale(0.3); }
+    100% { opacity: 0; transform: scale(1.35); }
+  }
+  .radar-core {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+  .meter-pct {
+    font-family: var(--mono);
+    font-size: 52px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-0);
+    transition: color 0.4s ease;
+  }
+  .meter-pct-sign { font-size: 24px; opacity: 0.6; font-weight: 600; }
+  .meter-dist { font-size: 12.5px; color: var(--text-2); margin-top: 6px; font-family: var(--mono); }
+  .meter-trend {
+    display: flex; align-items: center; gap: 4px;
+    margin-top: 8px;
+    font-size: 11.5px;
+    font-weight: 650;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+  }
+
+  .progress-track {
+    width: 100%;
+    max-width: 320px;
+    margin: 6px auto 0;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--bg-1);
+    border: 1px solid var(--border-soft);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    transition: width 0.5s cubic-bezier(.4,0,.2,1), background 0.4s ease;
+  }
+
+  .zone-labels {
+    display: flex; justify-content: space-between;
+    max-width: 320px;
+    margin: 6px auto 0;
+    font-size: 10.5px;
+    color: var(--text-2);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .ping-indicator {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--text-2);
+    font-weight: 600;
+  }
+  .ping-bars { display: flex; align-items: flex-end; gap: 2.5px; height: 14px; }
+  .ping-bars span {
+    width: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background 0.2s ease, height 0.2s ease;
+  }
+  .ping-bars span:nth-child(1) { height: 5px; }
+  .ping-bars span:nth-child(2) { height: 8px; }
+  .ping-bars span:nth-child(3) { height: 11px; }
+  .ping-bars span:nth-child(4) { height: 14px; }
+
+  .seeker-footer {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 20px;
+  }
+  .footer-stats {
+    display: flex;
+    gap: 10px;
+  }
+  .stat-box {
+    flex: 1;
+    padding: 12px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .stat-box .label { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 650; margin-bottom: 4px; }
+  .stat-box .val { font-size: 14px; font-weight: 650; color: var(--text-0); font-family: var(--mono); }
+
+  .control-row { display: flex; gap: 10px; }
+  .icon-toggle {
+    width: 52px;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    font-size: 19px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon-toggle.off { color: var(--text-2); }
+  .icon-toggle:active { transform: scale(0.94); }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-0);
+    padding: 12px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 50;
+    max-width: 90vw;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Found overlay ---------- */
+  .found-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(7,8,11,0.88);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .found-overlay.show { opacity: 1; pointer-events: auto; }
+  .found-card {
+    text-align: center;
+    padding: 36px 30px;
+    max-width: 320px;
+  }
+  .found-emoji { font-size: 54px; margin-bottom: 14px; animation: popin 0.5s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes popin { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .found-card h2 { font-size: 23px; margin: 0 0 8px; font-weight: 750; }
+  .found-card p { font-size: 13.5px; color: var(--text-1); margin: 0 0 22px; line-height: 1.55; }
+
+  /* ---------- small helpers ---------- */
+  .hidden { display: none !important; }
+  ::selection { background: var(--accent-soft); }
+
+  @media (max-width: 360px) {
+    .code-display { font-size: 30px; }
+    .meter-pct { font-size: 44px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="brand-mark">📡</span><span>Pelacak</span></div>
+    <div class="status-chip" id="connStatus"><span class="status-dot"></span><span id="connStatusText">Belum terhubung</span></div>
+  </div>
+
+  <main>
+
+    <!-- ===================== SCREEN 1: ROLE SELECT ===================== -->
+    <section class="screen active" id="screen-home">
+      <div class="hero">
+        <h1>Cari perangkat yang hilang,<br>dari browser mana saja.</h1>
+        <p>Tanpa install aplikasi. Hubungkan dua perangkat lewat kode sekali pakai, lalu ikuti sinyalnya sampai ketemu.</p>
+      </div>
+
+      <div class="role-grid">
+        <button class="role-card lost" id="btnRoleLost">
+          <div class="role-icon">📱</div>
+          <div class="role-text">
+            <h3>Perangkat ini yang hilang</h3>
+            <p>Buka di perangkat yang kemungkinan akan tertinggal / dicari nanti</p>
+          </div>
+          <div class="role-chevron">›</div>
+        </button>
+        <button class="role-card seek" id="btnRoleSeek">
+          <div class="role-icon">🧭</div>
+          <div class="role-text">
+            <h3>Saya mau mencari</h3>
+            <p>Buka di perangkat yang sedang lu pegang untuk mulai menelusuri</p>
+          </div>
+          <div class="role-chevron">›</div>
+        </button>
+      </div>
+
+      <details class="howitworks">
+        <summary>Cara kerjanya <span class="chev">⌄</span></summary>
+        <ol>
+          <li>Di perangkat yang mungkin akan hilang, pilih <b>"Perangkat ini yang hilang"</b> lalu biarkan tab tetap terbuka &mdash; catat kode yang muncul.</li>
+          <li>Saat perangkat itu hilang, buka situs ini di perangkat lain, pilih <b>"Saya mau mencari"</b>, masukkan kodenya.</li>
+          <li>Kedua perangkat terhubung langsung (peer-to-peer) dan lokasi di-bandingkan secara real-time &mdash; meteran & suara akan memandu lu makin dekat.</li>
+        </ol>
+      </details>
+    </section>
+
+    <!-- ===================== SCREEN 2: LOST DEVICE SETUP ===================== -->
+    <section class="screen" id="screen-lost-setup">
+      <div class="back-row">
+        <button class="back-btn" data-back="screen-home">‹</button>
+        <span class="screen-title">Mode: Perangkat Hilang</span>
+      </div>
+
+      <div class="pair-card">
+        <div class="pair-label">Kode perangkat ini</div>
+        <div class="code-display placeholder" id="lostCodeDisplay">Membuat kode…</div>
+        <div class="code-actions">
+          <button class="mini-btn" id="btnCopyCode">⧉ Salin kode</button>
+          <button class="mini-btn" id="btnRegenCode">↻ Buat ulang</button>
+        </div>
+      </div>
+
+      <div class="inline-error" id="lostSetupError"><span>⚠</span><span></span></div>
+
+      <p class="pair-hint">Catat atau kirim kode ini ke dirimu sendiri (chat ke orang rumah, dsb) sebagai jaga-jaga. Biarkan tab ini tetap terbuka dan layar menyala agar lokasi terus terkirim.</p>
+    </section>
+
+    <!-- ===================== SCREEN 3: LOST DEVICE — CONNECTED / BROADCASTING ===================== -->
+    <section class="screen" id="screen-lost-active">
+      <div class="back-row">
+        <button class="back-btn" data-back="screen-home" id="btnLostActiveBack">‹</button>
+        <span class="screen-title">Mode: Perangkat Hilang</span>
+      </div>
+
+      <div class="wait-wrap">
+        <div class="wait-orb" id="lostOrb">📍</div>
+        <h2 class="wait-title" id="lostWaitTitle">Menunggu pencari terhubung…</h2>
+        <p class="wait-sub" id="lostWaitSub">Kode: <b id="lostWaitCode">—</b><br>Biarkan halaman ini tetap terbuka.</p>
+
+        <div class="wait-panel">
+          <div class="wait-row"><span class="k">Status koneksi</span><span class="v" id="lostRowConn">Menunggu</span></div>
+          <div class="wait-row"><span class="k">Akses lokasi</span><span class="v" id="lostRowGeo">—</span></div>
+          <div class="wait-row"><span class="k">Akurasi GPS</span><span class="v" id="lostRowAcc">—</span></div>
+          <div class="wait-row"><span class="k">Update terakhir</span><span class="v" id="lostRowUpdate">—</span></div>
+          <div class="wait-row"><span class="k">Baterai</span>
+            <span class="v battery-row" id="lostRowBattery"><span class="battery-pill">🔋 —</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SCREEN 4: SEEKER — ENTER CODE ===================== -->
+    <section class="screen" id="screen-seek-setup">
+      <div class="back-row">
+        <button class="back-btn" data-back="screen-home">‹</button>
+        <span class="screen-title">Mode: Pencarian</span>
+      </div>
+
+      <div class="hero" style="padding-top:8px;">
+        <h1 style="font-size:20px;">Masukkan kode perangkat</h1>
+        <p>Kode 6 karakter yang tertera di layar perangkat yang hilang.</p>
+      </div>
+
+      <div class="input-group">
+        <label for="codeInput">Kode perangkat</label>
+        <input type="text" id="codeInput" class="code-input" placeholder="mis. 7X9K2P" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </div>
+
+      <button class="primary-btn" id="btnConnect">🔗 Hubungkan & Mulai Lacak</button>
+      <div class="inline-error" id="seekSetupError"><span>⚠</span><span></span></div>
+
+      <p class="pair-hint" style="margin-top:18px;">Pastikan lokasi (GPS) di perangkat ini diizinkan supaya meteran jarak bisa dihitung.</p>
+    </section>
+
+    <!-- ===================== SCREEN 5: SEEKER — RADAR / TRACKING ===================== -->
+    <section class="screen" id="screen-seek-active">
+      <div class="back-row">
+        <button class="back-btn" id="btnSeekDisconnect">‹</button>
+        <span class="screen-title">Melacak <span id="seekTargetCode">—</span></span>
+      </div>
+
+      <div class="radar-screen">
+
+        <div class="term-banner">
+          <p class="term-word" id="termWord">Mencari sinyal…</p>
+          <p class="term-sub" id="termSub">Menunggu data lokasi pertama</p>
+        </div>
+
+        <div class="radar-stage">
+          <svg class="radar-svg" viewBox="0 0 320 320">
+            <circle class="radar-ring" cx="160" cy="160" r="150"></circle>
+            <circle class="radar-ring" cx="160" cy="160" r="112"></circle>
+            <circle class="radar-ring" cx="160" cy="160" r="74"></circle>
+            <circle class="radar-ring" cx="160" cy="160" r="36"></circle>
+            <circle class="radar-pulse-ring" id="pulseRing" cx="160" cy="160" r="150" transform-origin="160 160"></circle>
+          </svg>
+          <div class="radar-core">
+            <div class="meter-pct"><span id="meterPct">0</span><span class="meter-pct-sign">%</span></div>
+            <div class="meter-dist" id="meterDist">jarak belum diketahui</div>
+            <div class="meter-trend" id="meterTrend"><span id="trendIcon">•</span><span id="trendText">Memulai</span></div>
+          </div>
+        </div>
+
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="zone-labels"><span>Jauh</span><span>Dekat</span></div>
+
+        <div class="ping-indicator">
+          <div class="ping-bars" id="pingBars"><span></span><span></span><span></span><span></span></div>
+          <span id="pingText">Menunggu ping…</span>
+        </div>
+
+      </div>
+
+      <div class="seeker-footer">
+        <div class="footer-stats">
+          <div class="stat-box"><div class="label">Perangkat target</div><div class="val" id="statTargetBattery">—</div></div>
+          <div class="stat-box"><div class="label">Akurasi GPS</div><div class="val" id="statAccuracy">—</div></div>
+          <div class="stat-box"><div class="label">Update</div><div class="val" id="statLastUpdate">—</div></div>
+        </div>
+        <div class="control-row">
+          <button class="primary-btn ghost" id="btnStopSeek" style="margin-top:0;">Putuskan koneksi</button>
+          <button class="icon-toggle" id="btnMuteToggle" title="Bisukan suara">🔊</button>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<div class="found-overlay" id="foundOverlay">
+  <div class="found-card">
+    <div class="found-emoji">🎉</div>
+    <h2>Ketemu!</h2>
+    <p>Sinyal menunjukkan perangkat ada tepat di sekitar sini. Coba dengarkan suara dering atau periksa sekitar lu.</p>
+    <button class="primary-btn" id="btnFoundOk">Oke, mengerti</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =========================================================
+     UTIL
+     ========================================================= */
+  const $ = (id) => document.getElementById(id);
+  const qs = (sel, root) => (root || document).querySelector(sel);
+
+  function showScreen(id) {
+    document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+    $(id).classList.add("active");
+  }
+
+  let toastTimer = null;
+  function toast(msg, ms) {
+    const el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), ms || 2400);
+  }
+
+  function setConnStatus(mode, text) {
+    const chip = $("connStatus");
+    chip.className = "status-chip " + (mode || "");
+    $("connStatusText").textContent = text;
+  }
+
+  function randomCode(len) {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I ambiguity
+    let out = "";
+    for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  function fmtTimeAgo(ts) {
+    if (!ts) return "—";
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 2) return "baru saja";
+    if (s < 60) return s + "d lalu";
+    const m = Math.floor(s / 60);
+    return m + "m lalu";
+  }
+
+  function fmtDistance(meters) {
+    if (meters == null || isNaN(meters)) return "jarak belum diketahui";
+    if (meters < 1) return "< 1 meter";
+    if (meters < 1000) return Math.round(meters) + " meter";
+    return (meters / 1000).toFixed(2) + " km";
+  }
+
+  // Haversine formula — great-circle distance in meters
+  function haversineMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = (d) => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  /* =========================================================
+     VARIED PROXIMITY VOCABULARY (bukan cuma Warmer/Colder)
+     Dipakai berdasar jarak (meter) DAN arah tren (mendekat/menjauh)
+     ========================================================= */
+  const ZONES = [
+    { max: 3,     key: "scorching", label: "Membara!",        sub: "Lu nyaris nginjek — cek persis sekitar lu",  color: "var(--scorching)" },
+    { max: 8,     key: "hot",       label: "Panas Banget",     sub: "Sangat dekat, lihat sekeliling pelan-pelan", color: "var(--hot)" },
+    { max: 20,    key: "warm",      label: "Menghangat",       sub: "Udah di ruangan/area yang sama",             color: "var(--warm)" },
+    { max: 45,    key: "mild",      label: "Mulai Terasa",     sub: "Arahnya makin benar, terus maju",            color: "var(--mild)" },
+    { max: 90,    key: "cool",      label: "Lumayan Jauh",     sub: "Masih perlu jalan cukup jauh",               color: "var(--cool)" },
+    { max: 200,   key: "cold",      label: "Dingin",           sub: "Jaraknya masih cukup signifikan",            color: "var(--cold)" },
+    { max: Infinity, key: "frozen", label: "Beku — Sangat Jauh", sub: "Perangkat jauh dari posisi ini",           color: "var(--cold)" }
+  ];
+
+  const TREND_WORDS = {
+    approaching_fast: { icon: "⬆︎⬆︎", text: "Mendekat cepat" },
+    approaching:       { icon: "⬆︎",  text: "Makin dekat" },
+    steady:            { icon: "→",  text: "Jarak stabil" },
+    receding:          { icon: "⬇︎",  text: "Menjauh" },
+    receding_fast:      { icon: "⬇︎⬇︎", text: "Menjauh cepat" },
+    start:              { icon: "•",  text: "Memulai pelacakan" }
+  };
+
+  function zoneFor(meters) {
+    for (const z of ZONES) if (meters <= z.max) return z;
+    return ZONES[ZONES.length - 1];
+  }
+
+  // distance -> 0-100% (nonlinear: more sensitive once close, per request)
+  function distanceToPercent(meters) {
+    if (meters == null || isNaN(meters)) return 0;
+    const MAX_RANGE = 250; // meters considered "0%"
+    const clamped = Math.min(meters, MAX_RANGE);
+    const linear = 1 - (clamped / MAX_RANGE);
+    // ease so the last 20% (close range) spreads out more => easier to read when near
+    const eased = Math.pow(linear, 1.6);
+    return Math.round(eased * 100);
+  }
+
+  /* =========================================================
+     AUDIO: "tut-tut" ping that gets FASTER & LOUDER as distance shrinks
+     Uses Web Audio API — no asset files needed.
+     ========================================================= */
+  const SoundEngine = (function () {
+    let ctx = null;
+    let muted = false;
+    let pingTimer = null;
+    let currentIntervalMs = 1200;
+
+    function ensureCtx() {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        ctx = new AC();
+      }
+      if (ctx.state === "suspended") ctx.resume();
+      return ctx;
+    }
+
+    function blip(volume, freq) {
+      if (muted) return;
+      try {
+        const c = ensureCtx();
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq || 880;
+        gain.gain.setValueAtTime(0.0001, c.currentTime);
+        gain.gain.exponentialRampToValueAtTime(Math.max(volume, 0.001), c.currentTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.14);
+        osc.connect(gain);
+        gain.connect(c.destination);
+        osc.start();
+        osc.stop(c.currentTime + 0.16);
+      } catch (e) { /* audio not available yet (needs user gesture) */ }
+    }
+
+    // percent 0-100 -> interval ms (closer = faster) and volume/pitch (closer = louder/higher)
+    function paramsForPercent(pct) {
+      const p = Math.max(0, Math.min(100, pct));
+      // interval: 1400ms far -> 160ms very close
+      const interval = 1400 - (p / 100) * 1240;
+      const volume = 0.05 + (p / 100) * 0.4;
+      const freq = 620 + (p / 100) * 680;
+      return { interval, volume, freq };
+    }
+
+    function start() {
+      stop();
+      scheduleNext();
+    }
+
+    let lastPct = 0;
+    function scheduleNext() {
+      const { interval, volume, freq } = paramsForPercent(lastPct);
+      currentIntervalMs = interval;
+      pingTimer = setTimeout(() => {
+        blip(volume, freq);
+        onPing && onPing();
+        scheduleNext();
+      }, interval);
+    }
+
+    let onPing = null;
+
+    function updatePercent(pct) {
+      lastPct = pct;
+    }
+
+    function stop() {
+      if (pingTimer) clearTimeout(pingTimer);
+      pingTimer = null;
+    }
+
+    function setMuted(v) { muted = v; }
+    function isMuted() { return muted; }
+    function setOnPing(fn) { onPing = fn; }
+    function unlock() { ensureCtx(); } // call on first user gesture
+
+    return { start, stop, updatePercent, setMuted, isMuted, setOnPing, unlock };
+  })();
+
+  /* =========================================================
+     BATTERY (best-effort, not all browsers support it)
+     ========================================================= */
+  function getBatteryInfo(callback) {
+    if (navigator.getBattery) {
+      navigator.getBattery().then(b => {
+        callback({ level: Math.round(b.level * 100), charging: b.charging });
+        b.addEventListener("levelchange", () => callback({ level: Math.round(b.level * 100), charging: b.charging }));
+        b.addEventListener("chargingchange", () => callback({ level: Math.round(b.level * 100), charging: b.charging }));
+      }).catch(() => callback(null));
+    } else {
+      callback(null);
+    }
+  }
+
+  /* =========================================================
+     STATE
+     ========================================================= */
+  const state = {
+    role: null,          // "lost" | "seek"
+    peer: null,
+    conn: null,
+    myCode: null,
+    targetCode: null,
+    watchId: null,
+    lastDistance: null,
+    lastPercent: 0,
+    battery: null,
+    lastUpdateTs: null,
+  };
+
+  /* =========================================================
+     NAV: role select
+     ========================================================= */
+  $("btnRoleLost").addEventListener("click", () => {
+    state.role = "lost";
+    showScreen("screen-lost-setup");
+    startLostPeer();
+  });
+
+  $("btnRoleSeek").addEventListener("click", () => {
+    state.role = "seek";
+    showScreen("screen-seek-setup");
+    setTimeout(() => $("codeInput").focus(), 200);
+  });
+
+  document.querySelectorAll("[data-back]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.getAttribute("data-back");
+      if (state.role === "lost" && state.peer) {
+        // keep broadcasting in background even if user glances back; but if they truly leave setup, that's fine
+      }
+      showScreen(target);
+    });
+  });
+
+  /* =========================================================
+     ROLE: LOST DEVICE
+     ========================================================= */
+  function startLostPeer(forceNewCode) {
+    if (state.peer && !forceNewCode) return; // already running
+
+    if (state.peer) {
+      try { state.peer.destroy(); } catch (e) {}
+      state.peer = null;
+    }
+
+    const code = "FIND-" + randomCode(6);
+    state.myCode = code;
+    $("lostCodeDisplay").textContent = "Membuat kode…";
+    $("lostCodeDisplay").classList.add("placeholder");
+    hideLostError();
+
+    let peer;
+    try {
+      peer = new Peer(code, {
+        // public PeerJS cloud signaling server — no setup needed
+        debug: 0
+      });
+    } catch (e) {
+      showLostError("Gagal membuat sesi. Coba muat ulang halaman.");
+      return;
+    }
+    state.peer = peer;
+
+    peer.on("open", (id) => {
+      $("lostCodeDisplay").textContent = id.replace("FIND-", "");
+      $("lostCodeDisplay").classList.remove("placeholder");
+      $("lostWaitCode").textContent = id.replace("FIND-", "");
+    });
+
+    peer.on("error", (err) => {
+      console.warn("Peer error:", err);
+      if (err.type === "unavailable-id") {
+        // extremely rare collision, retry with new code
+        startLostPeer(true);
+        return;
+      }
+      showLostError("Koneksi bermasalah: " + (err.type || "unknown") + ". Coba buat ulang kode.");
+    });
+
+    peer.on("connection", (conn) => {
+      state.conn = conn;
+      setConnStatus("pulse", "Pencari terhubung");
+      showScreen("screen-lost-active");
+      $("lostOrb").classList.add("linked");
+      $("lostOrb").textContent = "✅";
+      $("lostWaitTitle").textContent = "Pencari terhubung!";
+      $("lostWaitSub").innerHTML = "Mengirim lokasi secara real-time.<br>Biarkan halaman ini tetap terbuka.";
+      $("lostRowConn").textContent = "Terhubung";
+      $("lostRowConn").classList.add("ok");
+
+      conn.on("data", (msg) => {
+        if (msg && msg.type === "ping-request") {
+          // seeker asking for immediate fresh fix — handled by geolocation watch already pushing
+        }
+      });
+
+      conn.on("close", () => {
+        setConnStatus("warn", "Pencari terputus");
+        $("lostOrb").classList.remove("linked");
+        $("lostOrb").textContent = "📍";
+        $("lostWaitTitle").textContent = "Menunggu pencari terhubung…";
+        $("lostWaitSub").innerHTML = "Kode: <b>" + (state.myCode || "").replace("FIND-", "") + "</b><br>Biarkan halaman ini tetap terbuka.";
+        $("lostRowConn").textContent = "Terputus — menunggu lagi";
+        $("lostRowConn").classList.remove("ok");
+        state.conn = null;
+      });
+
+      conn.on("error", () => {
+        toast("Terjadi gangguan koneksi");
+      });
+    });
+
+    startGeolocationBroadcast();
+    getBatteryInfo((info) => {
+      state.battery = info;
+      renderLostBattery();
+    });
+  }
+
+  function renderLostBattery() {
+    const el = $("lostRowBattery");
+    if (!state.battery) {
+      el.innerHTML = '<span class="battery-pill">🔋 Tidak tersedia</span>';
+      return;
+    }
+    const icon = state.battery.charging ? "🔌" : (state.battery.level <= 20 ? "🪫" : "🔋");
+    el.innerHTML = '<span class="battery-pill">' + icon + " " + state.battery.level + "%" + (state.battery.charging ? " · mengisi" : "") + "</span>";
+  }
+
+  function startGeolocationBroadcast() {
+    if (!navigator.geolocation) {
+      showLostError("Browser ini tidak mendukung akses lokasi.");
+      $("lostRowGeo").textContent = "Tidak didukung";
+      return;
+    }
+    $("lostRowGeo").textContent = "Meminta izin…";
+
+    if (state.watchId != null) navigator.geolocation.clearWatch(state.watchId);
+
+    state.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        $("lostRowGeo").textContent = "Aktif";
+        $("lostRowGeo").classList.add("ok");
+        $("lostRowAcc").textContent = Math.round(pos.coords.accuracy) + " m";
+        $("lostRowUpdate").textContent = "baru saja";
+
+        const payload = {
+          type: "location",
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          battery: state.battery,
+          ts: Date.now()
+        };
+        if (state.conn && state.conn.open) {
+          try { state.conn.send(payload); } catch (e) {}
+        }
+      },
+      (err) => {
+        console.warn("geo error", err);
+        $("lostRowGeo").textContent = "Izin ditolak / gagal";
+        $("lostRowGeo").classList.remove("ok");
+        if (err.code === 1) {
+          showLostError("Izin lokasi ditolak. Aktifkan akses lokasi untuk browser ini di pengaturan perangkat.");
+        } else {
+          showLostError("Gagal mengambil lokasi: " + err.message);
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+    );
+
+    // periodic "last update" text refresher
+    setInterval(() => {
+      if ($("lostRowUpdate").textContent !== "—") {
+        // re-render relative time roughly
+      }
+    }, 5000);
+  }
+
+  function showLostError(msg) {
+    const el = $("lostSetupError");
+    el.querySelector("span:last-child").textContent = msg;
+    el.classList.add("show");
+  }
+  function hideLostError() {
+    $("lostSetupError").classList.remove("show");
+  }
+
+  $("btnCopyCode").addEventListener("click", () => {
+    const code = $("lostCodeDisplay").textContent;
+    if (!code || code.includes("Membuat")) return;
+    navigator.clipboard?.writeText(code).then(() => {
+      $("btnCopyCode").textContent = "✓ Tersalin";
+      $("btnCopyCode").classList.add("copied");
+      setTimeout(() => { $("btnCopyCode").textContent = "⧉ Salin kode"; $("btnCopyCode").classList.remove("copied"); }, 1600);
+    }).catch(() => toast("Gagal menyalin, salin manual ya"));
+  });
+
+  $("btnRegenCode").addEventListener("click", () => {
+    if (state.conn) { try { state.conn.close(); } catch(e){} state.conn = null; }
+    startLostPeer(true);
+    toast("Kode baru dibuat");
+  });
+
+  $("btnLostActiveBack").addEventListener("click", () => {
+    showScreen("screen-lost-setup");
+  });
+
+  /* =========================================================
+     ROLE: SEEKER
+     ========================================================= */
+  $("codeInput").addEventListener("input", (e) => {
+    e.target.value = e.target.value.toUpperCase();
+  });
+  $("codeInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("btnConnect").click();
+  });
+
+  $("btnConnect").addEventListener("click", () => {
+    const raw = $("codeInput").value.trim().toUpperCase();
+    if (!raw) {
+      showSeekError("Masukkan kode terlebih dahulu.");
+      return;
+    }
+    SoundEngine.unlock(); // user gesture — unlock audio now
+    hideSeekError();
+    connectToLostDevice(raw);
+  });
+
+  function showSeekError(msg) {
+    const el = $("seekSetupError");
+    el.querySelector("span:last-child").textContent = msg;
+    el.classList.add("show");
+  }
+  function hideSeekError() {
+    $("seekSetupError").classList.remove("show");
+  }
+
+  function connectToLostDevice(rawCode) {
+    const fullCode = rawCode.startsWith("FIND-") ? rawCode : "FIND-" + rawCode;
+    state.targetCode = fullCode;
+
+    $("btnConnect").disabled = true;
+    $("btnConnect").textContent = "Menghubungkan…";
+
+    let peer;
+    try {
+      peer = new Peer(undefined, { debug: 0 });
+    } catch (e) {
+      showSeekError("Browser tidak mendukung koneksi real-time ini.");
+      resetConnectBtn();
+      return;
+    }
+    state.peer = peer;
+
+    peer.on("open", () => {
+      const conn = peer.connect(fullCode, { reliable: true });
+      state.conn = conn;
+
+      const timeoutId = setTimeout(() => {
+        if (!conn.open) {
+          showSeekError("Tidak dapat terhubung. Periksa kode dan pastikan perangkat tujuan online.");
+          resetConnectBtn();
+          try { conn.close(); } catch(e){}
+        }
+      }, 12000);
+
+      conn.on("open", () => {
+        clearTimeout(timeoutId);
+        setConnStatus("ok", "Terhubung");
+        $("seekTargetCode").textContent = rawCode;
+        showScreen("screen-seek-active");
+        resetConnectBtn();
+        startSeekerTracking();
+        toast("Terhubung! Melacak lokasi…");
+      });
+
+      conn.on("data", (msg) => {
+        if (msg && msg.type === "location") handleIncomingLocation(msg);
+      });
+
+      conn.on("close", () => {
+        setConnStatus("warn", "Terputus");
+        toast("Koneksi dengan perangkat terputus");
+        stopSeekerTracking();
+        showScreen("screen-seek-setup");
+      });
+
+      conn.on("error", (err) => {
+        console.warn(err);
+        clearTimeout(timeoutId);
+        showSeekError("Koneksi gagal: periksa kode & koneksi internet.");
+        resetConnectBtn();
+      });
+    });
+
+    peer.on("error", (err) => {
+      console.warn("Peer error", err);
+      if (err.type === "peer-unavailable") {
+        showSeekError("Kode tidak ditemukan atau perangkat sedang tidak online.");
+      } else {
+        showSeekError("Terjadi kendala koneksi (" + (err.type || "unknown") + ").");
+      }
+      resetConnectBtn();
+    });
+  }
+
+  function resetConnectBtn() {
+    $("btnConnect").disabled = false;
+    $("btnConnect").textContent = "🔗 Hubungkan & Mulai Lacak";
+  }
+
+  let seekerWatchId = null;
+  let myLat = null, myLon = null;
+  let lastKnownTargetLoc = null;
+
+  function startSeekerTracking() {
+    SoundEngine.setOnPing(flashPulse);
+    SoundEngine.start();
+
+    if (navigator.geolocation) {
+      seekerWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          myLat = pos.coords.latitude;
+          myLon = pos.coords.longitude;
+          recomputeDistance();
+        },
+        (err) => {
+          console.warn("seeker geo error", err);
+          toast("Izin lokasi diperlukan agar jarak bisa dihitung");
+        },
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+      );
+    } else {
+      toast("Browser ini tidak mendukung GPS");
+    }
+  }
+
+  function stopSeekerTracking() {
+    if (seekerWatchId != null) navigator.geolocation.clearWatch(seekerWatchId);
+    seekerWatchId = null;
+    SoundEngine.stop();
+    if (state.peer) { try { state.peer.destroy(); } catch(e){} }
+    state.peer = null;
+    state.conn = null;
+    state.lastDistance = null;
+    state.lastPercent = 0;
+    myLat = myLon = null;
+    lastKnownTargetLoc = null;
+    setConnStatus("", "Belum terhubung");
+  }
+
+  function handleIncomingLocation(msg) {
+    lastKnownTargetLoc = { lat: msg.lat, lon: msg.lon, accuracy: msg.accuracy, ts: msg.ts };
+    state.lastUpdateTs = Date.now();
+
+    $("statAccuracy").textContent = Math.round(msg.accuracy) + " m";
+    $("statLastUpdate").textContent = "baru saja";
+
+    if (msg.battery) {
+      const icon = msg.battery.charging ? "🔌" : (msg.battery.level <= 20 ? "🪫" : "🔋");
+      $("statTargetBattery").textContent = icon + " " + msg.battery.level + "%";
+    } else {
+      $("statTargetBattery").textContent = "N/A";
+    }
+
+    recomputeDistance();
+  }
+
+  function recomputeDistance() {
+    if (myLat == null || !lastKnownTargetLoc) return;
+
+    const dist = haversineMeters(myLat, myLon, lastKnownTargetLoc.lat, lastKnownTargetLoc.lon);
+    const pct = distanceToPercent(dist);
+
+    const prevDist = state.lastDistance;
+    state.lastDistance = dist;
+    state.lastPercent = pct;
+
+    SoundEngine.updatePercent(pct);
+    updateRadarUI(dist, pct, prevDist);
+  }
+
+  function updateRadarUI(dist, pct, prevDist) {
+    const zone = zoneFor(dist);
+
+    $("meterPct").textContent = pct;
+    $("meterDist").textContent = "± " + fmtDistance(dist);
+    $("termWord").textContent = zone.label;
+    $("termWord").style.color = zone.color;
+    $("termSub").textContent = zone.sub;
+
+    $("progressFill").style.width = pct + "%";
+    $("progressFill").style.background = zone.color;
+
+    // trend
+    let trendKey = "start";
+    if (prevDist != null) {
+      const delta = dist - prevDist;
+      if (delta < -8) trendKey = "approaching_fast";
+      else if (delta < -1.2) trendKey = "approaching";
+      else if (delta > 8) trendKey = "receding_fast";
+      else if (delta > 1.2) trendKey = "receding";
+      else trendKey = "steady";
+    }
+    const t = TREND_WORDS[trendKey];
+    $("trendIcon").textContent = t.icon;
+    $("trendText").textContent = t.text;
+
+    const trendColorMap = {
+      approaching_fast: "var(--mild)", approaching: "var(--mild)",
+      steady: "var(--text-2)",
+      receding: "var(--warm)", receding_fast: "var(--danger)",
+      start: "var(--text-2)"
+    };
+    $("meterTrend").style.borderColor = trendColorMap[trendKey];
+    $("meterTrend").style.color = trendColorMap[trendKey];
+
+    if (pct >= 97) {
+      triggerFoundState();
+    }
+  }
+
+  function flashPulse() {
+    const ring = $("pulseRing");
+    ring.classList.remove("pulsing");
+    void ring.offsetWidth; // reflow to restart animation
+    ring.classList.add("pulsing");
+
+    // update ping bars intensity based on current percent
+    const pct = state.lastPercent || 0;
+    const bars = $("pingBars").children;
+    const activeCount = Math.max(1, Math.round((pct / 100) * 4));
+    for (let i = 0; i < bars.length; i++) {
+      bars[i].style.background = i < activeCount ? zoneFor(state.lastDistance ?? 999).color : "var(--border)";
+    }
+    $("pingText").textContent = pct >= 90 ? "Ping cepat — sangat dekat" : pct >= 50 ? "Ping sedang" : "Ping lambat — masih jauh";
+  }
+
+  let foundShown = false;
+  function triggerFoundState() {
+    if (foundShown) return;
+    foundShown = true;
+    $("foundOverlay").classList.add("show");
+  }
+  $("btnFoundOk").addEventListener("click", () => {
+    $("foundOverlay").classList.remove("show");
+    // allow re-trigger if it moves away & comes back again
+    setTimeout(() => { foundShown = false; }, 4000);
+  });
+
+  $("btnMuteToggle").addEventListener("click", () => {
+    const nowMuted = !SoundEngine.isMuted();
+    SoundEngine.setMuted(nowMuted);
+    $("btnMuteToggle").textContent = nowMuted ? "🔇" : "🔊";
+    $("btnMuteToggle").classList.toggle("off", nowMuted);
+  });
+
+  $("btnStopSeek").addEventListener("click", () => {
+    if (state.conn) { try { state.conn.close(); } catch(e){} }
+    stopSeekerTracking();
+    showScreen("screen-seek-setup");
+  });
+
+  $("btnSeekDisconnect").addEventListener("click", () => {
+    if (state.conn) { try { state.conn.close(); } catch(e){} }
+    stopSeekerTracking();
+    showScreen("screen-home");
+  });
+
+  // periodic relative-time refresh for seeker stats
+  setInterval(() => {
+    if (state.lastUpdateTs && $("screen-seek-active").classList.contains("active")) {
+      $("statLastUpdate").textContent = fmtTimeAgo(state.lastUpdateTs);
+    }
+  }, 3000);
+
+  // cleanup on unload
+  window.addEventListener("beforeunload", () => {
+    if (state.watchId != null) navigator.geolocation.clearWatch(state.watchId);
+    if (seekerWatchId != null) navigator.geolocation.clearWatch(seekerWatchId);
+    if (state.peer) { try { state.peer.destroy(); } catch(e){} }
+  });
+
+})();
+</script>
+</body>
+</html>
