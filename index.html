@@ -762,6 +762,10 @@
           <p class="term-sub" id="termSub">Menunggu data lokasi pertama</p>
         </div>
 
+        <div class="inline-error" id="seekGeoWarning" style="margin:0 0 10px;justify-content:center;">
+          <span>⚠</span><span id="seekGeoWarningText">Lokasi perangkat ini belum aktif — izinkan akses lokasi di browser ini agar jarak bisa dihitung.</span>
+        </div>
+
         <div class="radar-stage">
           <svg class="radar-svg" viewBox="0 0 320 320">
             <circle class="radar-ring" cx="160" cy="160" r="150"></circle>
@@ -856,9 +860,9 @@
     if (!ts) return "—";
     const s = Math.floor((Date.now() - ts) / 1000);
     if (s < 2) return "baru saja";
-    if (s < 60) return s + "d lalu";
+    if (s < 60) return s + " detik lalu";
     const m = Math.floor(s / 60);
-    return m + "m lalu";
+    return m + " menit lalu";
   }
 
   function fmtDistance(meters) {
@@ -1342,23 +1346,44 @@
   function startSeekerTracking() {
     SoundEngine.setOnPing(flashPulse);
     SoundEngine.start();
+    showSeekGeoWarning("Meminta izin lokasi perangkat ini…");
 
     if (navigator.geolocation) {
       seekerWatchId = navigator.geolocation.watchPosition(
         (pos) => {
           myLat = pos.coords.latitude;
           myLon = pos.coords.longitude;
+          hideSeekGeoWarning();
           recomputeDistance();
         },
         (err) => {
           console.warn("seeker geo error", err);
-          toast("Izin lokasi diperlukan agar jarak bisa dihitung");
+          let msg;
+          if (err.code === 1) {
+            msg = "Izin lokasi ditolak di perangkat ini. Aktifkan akses lokasi untuk browser ini (cek ikon gembok/pengaturan situs di address bar), lalu muat ulang halaman.";
+          } else if (err.code === 2) {
+            msg = "Posisi tidak tersedia. Pastikan layanan lokasi (GPS/Wi-Fi positioning) aktif di pengaturan perangkat atau OS ini.";
+          } else {
+            msg = "Gagal mengambil lokasi perangkat ini: " + err.message + ". Jarak tidak bisa dihitung sampai ini aktif.";
+          }
+          showSeekGeoWarning(msg);
+          toast("Lokasi perangkat ini belum aktif");
         },
         { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
       );
     } else {
+      showSeekGeoWarning("Browser ini tidak mendukung akses lokasi (Geolocation API).");
       toast("Browser ini tidak mendukung GPS");
     }
+  }
+
+  function showSeekGeoWarning(msg) {
+    const el = $("seekGeoWarning");
+    $("seekGeoWarningText").textContent = msg;
+    el.classList.add("show");
+  }
+  function hideSeekGeoWarning() {
+    $("seekGeoWarning").classList.remove("show");
   }
 
   function stopSeekerTracking() {
@@ -1393,7 +1418,14 @@
   }
 
   function recomputeDistance() {
-    if (myLat == null || !lastKnownTargetLoc) return;
+    if (!lastKnownTargetLoc) return; // belum ada data lokasi dari perangkat target sama sekali
+    if (myLat == null) {
+      // sudah dapat lokasi target, tapi lokasi perangkat PENCARI ini sendiri belum tersedia
+      $("termWord").textContent = "Lokasi Lu Belum Aktif";
+      $("termWord").style.color = "var(--warm)";
+      $("termSub").textContent = "Data dari perangkat target sudah masuk, tapi izinkan akses lokasi di perangkat ini juga";
+      return;
+    }
 
     const dist = haversineMeters(myLat, myLon, lastKnownTargetLoc.lat, lastKnownTargetLoc.lon);
     const pct = distanceToPercent(dist);
